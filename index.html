@@ -307,8 +307,21 @@ async function loadData() {
     const res = await fetch(dlUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ファイルを取得できませんでした`);
     const buf = await res.arrayBuffer();
-    const wb  = XLSX.read(buf, { type: 'array' });
+    const wb  = XLSX.read(buf, { type: 'array', codepage: 932 });
     DATA = parse(wb);
+    // デバッグ: シート名と最初の数行をコンソールに出力
+    console.log('シート一覧:', wb.SheetNames);
+    wb.SheetNames.forEach(name => {
+      const ws = wb.Sheets[name];
+      const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
+      console.log(`[${name}] 行数:${rows.length} 最初の行:`, rows[0]);
+    });
+    console.log('解析結果:', {
+      salary: DATA.salary,
+      cash: DATA.cash,
+      stock: DATA.stock,
+      banks: Object.keys(DATA.banks)
+    });
     render();
     show('app');
     document.getElementById('last-updated').textContent =
