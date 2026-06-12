@@ -374,7 +374,7 @@ function parse(wb) {
           const v = get12();
           if (!result.cards.length) result.cards = Array(12).fill(0);
           v.forEach((x,i) => result.cards[i] += Math.abs(x));
-        } else if (label.includes('ビューカード') || label.includes('EPOS')) {
+        } else if (label.includes('ビューカード') || label.includes('EPOS') || label.includes('エポス')) {
           const v = get12();
           if (!result.cards.length) result.cards = Array(12).fill(0);
           v.forEach((x,i) => result.cards[i] += Math.abs(x));
@@ -385,22 +385,25 @@ function parse(wb) {
     // ── 口座管理 ──
     if (sheetName.includes('口座')) {
       rows.forEach(row => {
-        const label = String(row[0] || '');
-        const get12 = () => Array.from({length:12}, (_,i) => vn(row[3+i]));
-        if (label.includes('楽天銀行'))   result.banks['楽天銀行']   = get12();
-        if (label.includes('SBI銀行') || (label.includes('SBI') && label.includes('銀行')))
-                                           result.banks['SBI銀行']    = get12();
-        if (label.includes('じぶん') || label.includes('au'))
-                                           result.banks['auじぶん銀行']= get12();
-        if (label.includes('あおぞら'))    result.banks['あおぞら銀行']= get12();
-        if (label.includes('ゆうちょ'))    result.banks['ゆうちょ銀行']= get12();
+        const label = String(row[0] || '').trim();
+        // 数値が入っている最初の列を見つけて12列分取得
+        const get12from = (startIdx) => Array.from({length:12}, (_,i) => vn(row[startIdx+i]));
+        // 口座行はindex0=名前, 1=役割, 2=目標%, 3〜=月次残高
+        const get12 = () => get12from(3);
+
+        if (label === '楽天銀行')     result.banks['楽天銀行']    = get12();
+        else if (label === 'SBI銀行') result.banks['SBI銀行']     = get12();
+        else if (label === 'auじぶん銀行' || label.includes('じぶん'))
+                                       result.banks['auじぶん銀行'] = get12();
+        else if (label === 'あおぞら銀行') result.banks['あおぞら銀行'] = get12();
+        else if (label === 'ゆうちょ銀行') result.banks['ゆうちょ銀行'] = get12();
       });
     }
 
     // ── 株式管理 ──
     if (sheetName.includes('株式')) {
       rows.forEach(row => {
-        const label = String(row[0] || '');
+        const label = String(row[0] || '').trim();
         const get12 = () => Array.from({length:12}, (_,i) => vn(row[2+i]));
         if (label === 'SBI証券')  result.sbi     = get12();
         if (label === '楽天証券') result.rakuten = get12();
