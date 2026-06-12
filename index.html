@@ -276,7 +276,7 @@
 // ──────────────────────────────────────────
 // ★ OneDrive共有リンク（変更する場合はここだけ）
 // ──────────────────────────────────────────
-const GOOGLE_SHEETS_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRd_vThFXrf2wLo4iI-AD6s-riO_0_2EyXxAheDx2sveIahN0cSYOUcF2WHL2mRMdqFp4Q6azOaT__v/pub?output=csv';
+const GOOGLE_SHEETS_URL = 'https://docs.google.com/spreadsheets/d/1YTX4VEHUH1kA5dfkRSkcOnkEg3VLYY8US7o2ppt2Tfo/export?format=xlsx';
 
 // ──────────────────────────────────────────
 // OneDrive URL → ダウンロードURL変換
@@ -307,21 +307,8 @@ async function loadData() {
     const res = await fetch(dlUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ファイルを取得できませんでした`);
     const buf = await res.arrayBuffer();
-    const wb  = XLSX.read(buf, { type: 'array', codepage: 932 });
+    const wb  = XLSX.read(buf, { type: 'array' });
     DATA = parse(wb);
-    // デバッグ: シート名と最初の数行をコンソールに出力
-    console.log('シート一覧:', wb.SheetNames);
-    wb.SheetNames.forEach(name => {
-      const ws = wb.Sheets[name];
-      const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
-      console.log(`[${name}] 行数:${rows.length} 最初の行:`, rows[0]);
-    });
-    console.log('解析結果:', {
-      salary: DATA.salary,
-      cash: DATA.cash,
-      stock: DATA.stock,
-      banks: Object.keys(DATA.banks)
-    });
     render();
     show('app');
     document.getElementById('last-updated').textContent =
@@ -342,97 +329,108 @@ function show(id) {
 }
 
 // ──────────────────────────────────────────
-// Parse（CSV対応版）
+// Parse（xlsx全シート対応版）
 // ──────────────────────────────────────────
 function vn(x) {
   if (x === null || x === undefined || x === '') return 0;
-  const n = parseFloat(String(x).replace(/,/g, ''));
-  return isNaN(n) ? 0 : n;
+  const s = String(x).replace(/,/g,'').replace(/[()]/g,'');
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : (String(x).includes('(') ? -n : n);
 }
 
 function parse(wb) {
-  const result = { salary:[], cards:[], cash:[], stock:[], banks:{}, sbi:[], rakuten:[], goal:10300000, monthly:{} };
+  const result = {
+    salary:[], cards:[], cash:[], stock:[],
+    banks:{}, sbi:[], rakuten:[],
+    goal:10300000, monthly:{}
+  };
 
-  // 全シートを処理
   wb.SheetNames.forEach(sheetName => {
     const ws   = wb.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
 
-    // ── 年間サマリーシート ──
+    // ── 年間サマリー ──
     if (sheetName.includes('年間サマリー') || sheetName.includes('年間')) {
-      const vals12 = row => {
-        if (!row) return Array(12).fill(0);
-        // 数値が入っている列を探して12個取得
-        const nums = [];
-        for (let i = 0; i < row.length && nums.length < 12; i++) {
-          const n = vn(row[i]);
-          if (n !== 0 || nums.length > 0) nums.push(n);
-        }
-        while (nums.length < 12) nums.push(0);
-        return nums.slice(0, 12);
-      };
-
       rows.forEach(row => {
         const label = String(row[0] || row[1] || '');
-        if (label.includes('給料') && !label.includes('合計') && result.salary.length === 0) {
-          result.salary = vals12(row);
+        // 列C(index2)〜N(index13)が1〜12月
+        const get12 = () => Array.from({length:12}, (_,i) => vn(row[2+i]));
+
+        if (label.includes('給料（手取り）')) {
+          result.salary = get12();
         } else if (label.includes('現金合計')) {
-          result.cash = vals12(row);
+          result.cash = get12();
         } else if (label.includes('株式合計')) {
-          result.stock = vals12(row);
+          result.stock = get12();
         } else if (label.includes('SBI証券') && !label.includes('銀行')) {
-          result.sbi = vals12(row);
+          result.sbi = get12();
         } else if (label.includes('楽天証券')) {
-          result.rakuten = vals12(row);
-        } else if (label.includes('Amazonカード') || label.includes('楽天カード') ||
-                   label.includes('ビューカード') || label.includes('EPOS')) {
-          const vals = vals12(row);
-          if (result.cards.length === 0) result.cards = Array(12).fill(0);
-          vals.forEach((v, i) => result.cards[i] = (result.cards[i] || 0) + Math.abs(v));
-        } else if (label.includes('楽天銀行')) {
-          result.banks['楽天銀行'] = vals12(row);
-        } else if (label.includes('SBI') && label.includes('銀行')) {
-          result.banks['SBI銀行'] = vals12(row);
-        } else if (label.includes('じぶん') || label.includes('au')) {
-          result.banks['auじぶん銀行'] = vals12(row);
-        } else if (label.includes('あおぞら')) {
-          result.banks['あおぞら銀行'] = vals12(row);
-        } else if (label.includes('ゆうちょ')) {
-          result.banks['ゆうちょ銀行'] = vals12(row);
+          result.rakuten = get12();
+        } else if (label.includes('Amazonカード')) {
+          const v = get12();
+          if (!result.cards.length) result.cards = Array(12).fill(0);
+          v.forEach((x,i) => result.cards[i] += Math.abs(x));
+        } else if (label.includes('楽天カード')) {
+          const v = get12();
+          if (!result.cards.length) result.cards = Array(12).fill(0);
+          v.forEach((x,i) => result.cards[i] += Math.abs(x));
+        } else if (label.includes('ビューカード') || label.includes('EPOS')) {
+          const v = get12();
+          if (!result.cards.length) result.cards = Array(12).fill(0);
+          v.forEach((x,i) => result.cards[i] += Math.abs(x));
         }
       });
     }
 
-    // ── 月別収支シート ──
-    const monthMap = {'1月':0,'2月':1,'3月':2,'4月':3,'5月':4,'6月':5,
-                      '7月':6,'8月':7,'9月':8,'10月':9,'11月':10,'12月':11};
+    // ── 口座管理 ──
+    if (sheetName.includes('口座')) {
+      rows.forEach(row => {
+        const label = String(row[0] || '');
+        const get12 = () => Array.from({length:12}, (_,i) => vn(row[3+i]));
+        if (label.includes('楽天銀行'))   result.banks['楽天銀行']   = get12();
+        if (label.includes('SBI銀行') || (label.includes('SBI') && label.includes('銀行')))
+                                           result.banks['SBI銀行']    = get12();
+        if (label.includes('じぶん') || label.includes('au'))
+                                           result.banks['auじぶん銀行']= get12();
+        if (label.includes('あおぞら'))    result.banks['あおぞら銀行']= get12();
+        if (label.includes('ゆうちょ'))    result.banks['ゆうちょ銀行']= get12();
+      });
+    }
+
+    // ── 株式管理 ──
+    if (sheetName.includes('株式')) {
+      rows.forEach(row => {
+        const label = String(row[0] || '');
+        const get12 = () => Array.from({length:12}, (_,i) => vn(row[2+i]));
+        if (label === 'SBI証券')  result.sbi     = get12();
+        if (label === '楽天証券') result.rakuten = get12();
+      });
+    }
+
+    // ── 月別収支シート（1月〜12月）──
+    const monthMap = {
+      '1月':0,'2月':1,'3月':2,'4月':3,'5月':4,'6月':5,
+      '7月':6,'8月':7,'9月':8,'10月':9,'11月':10,'12月':11
+    };
     if (monthMap[sheetName] !== undefined) {
       const mi = monthMap[sheetName];
       const cats = { 住居費:0, '娯楽・サブスク':0, 変動費:0, '積立・投資':0 };
-      let currentCat = null;
       rows.forEach(row => {
-        const label = String(row[0] || '');
+        const label = String(row[0] || '').trim();
         const amt   = vn(row[1]);
-        if (label.includes('住居費')) currentCat = '住居費';
-        else if (label.includes('娯楽')) currentCat = '娯楽・サブスク';
-        else if (label.includes('変動費')) currentCat = '変動費';
-        else if (label === '株' || label.includes('積立') || label.includes('投資')) currentCat = '積立・投資';
-        if (label.includes('小計') && currentCat) {
-          cats[currentCat] = amt;
-          currentCat = null;
-        }
+        if (label === '住居費 小計')  cats['住居費'] = amt;
+        if (label === '娯楽 小計')    cats['娯楽・サブスク'] = amt;
+        if (label === '変動費 小計')  cats['変動費'] = amt;
+        if (label === '積立 小計')    cats['積立・投資'] = amt;
       });
       result.monthly[mi] = cats;
     }
   });
 
   // デフォルト値
-  if (result.salary.length === 0) result.salary = Array(12).fill(0);
-  if (result.cards.length === 0)  result.cards  = Array(12).fill(0);
-  if (result.cash.length === 0)   result.cash   = Array(12).fill(0);
-  if (result.stock.length === 0)  result.stock  = Array(12).fill(0);
-  if (result.sbi.length === 0)    result.sbi    = Array(12).fill(0);
-  if (result.rakuten.length === 0) result.rakuten = Array(12).fill(0);
+  ['salary','cards','cash','stock','sbi','rakuten'].forEach(k => {
+    if (!result[k].length) result[k] = Array(12).fill(0);
+  });
 
   return result;
 }
